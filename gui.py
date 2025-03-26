@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+
+'''
+SVG Graph Data Extractor | Extract (*approximate*) graph-scaled data from a plotted graph after Inkscape preprocessing for further analysis, replotting etc.
+    Copyright (C) 2025 Yingbo Li
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+'''
+
+from tkinter import *
+from PIL import Image,ImageTk
+import os
+import re
+import numpy as np
+import pandas as pd
+
+def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_center=False,out_file=None):
+    if not out_file:
+        out_file = svg_file+".csv"
+    with open(svg_file) as infile:
+        svg = infile.read()
+    alignment_points = [m for m in re.findall(r"<circle[\s\S]+?/>",svg) if "coords=" in m]
+    if len(alignment_points)!=2:
+        raise ValueError("Exactly 2 alignment point are required but found %u alignment points" % len(alignment_points))
+    align_centers = []
+    graph_centers = []
+    for alignment_point in alignment_points:
+        # Identify Svg/SVG coordinates of the alignment points.
+        m_svg = re.search(r"cx=\"(.*?)\"[\s\S]*?cy=\"(.*?)\"",alignment_point)
+        align_centers.append((m_svg.group(1),m_svg.group(2)))
+        # Identify graph coordinates of the alignment points.
+        m_graph = re.search(r"coords=\"(.*?),(.*?)\"",alignment_point)
+        graph_centers.append((m_graph.group(1),m_graph.group(2)))
+    # sort alignment points so p1 is topleft and p2 is bottomright
+    # p1 in form [[x_svg,y_svg],
+    #             [x_graph   ,y_graph   ]]
+    # as numpy array
+    p1,p2 = np.array(sorted(zip(align_centers,graph_centers),key=lambda x : x[0][0])).astype(float)
+    # Determine transform between svg svg and graph coordinate domain.
+    svg_topleft = p1[0,:]
+    svg_bottomright = p2[0,:]
+    svg_topleft[1] = -svg_topleft[1]
+    svg_bottomright[1] = -svg_bottomright[1]
+    graph_topleft = p1[1,:]
+    graph_bottomright = p2[1,:]
+    svg_diff = svg_bottomright - svg_topleft
+    graph_diff = graph_bottomright - graph_topleft
+    x0 = p1[1][0]
+    y0 = p1[1][1]
+    x_scale = graph_diff[0]/svg_diff[0]
+    y_scale = graph_diff[1]/svg_diff[1]
+    svg_x_diff = svg_diff[0]
+    svg_y_diff = svg_diff[1]
+    graph_x_diff = graph_diff[0]
+    graph_y_diff = graph_diff[1]
+    # Search for path tags.
+    paths = [m_str for m_str in re.findall(r"<path[\s\S]*?/>",svg) if point_style in m_str]
+    lines = []
+    for path in paths:
+        try:
+            # find the m origin of these paths; may not be the exact center of the point but should be equally offset (systematic error) - which has no effect on changes in D95
+            raw_coords_m = re.search("d=\"m (.+)\"",path)
+            if raw_coords_m:
+                raw_coords = raw_coords_m.group(1)
+                processed_coords = re.sub("h (.*?) l",r"\g<1>,0",raw_coords)
+                relative_coords = True
+            else:
+                # TODO:
+                raise ValueError("Absolute coordinates not supported yet")
+            # Isolate just the coordinate items.
+            coords = [c for c in processed_coords.split(" ") if "," in c]
+            if relative_coords:
+                # convert m origin into a numpy array
+                origin = np.array(coords[0].split(",")).astype(float)
+                deltas = np.cumsum(np.array([np.array(c.split(",")).astype(float) for c in coords[1:]]),axis=0)
+                points = np.append(np.array([origin]),origin+deltas,axis=0)
+            else:
+                # TODO
+                points = [np.array(c.split(",")).astype(float) for c in coords]
+            # fix coordinate convention
+            points[:,1] = -points[:,1]
+            # center
+            if get_center:
+                points = [points.mean(axis=0)]
+            # describe point relative to top left svg coordinate
+            points_vs_top_left = (points - p1[0,:])
+            if x_axis == "linear":
+                # scale point to graph coordinates
+                graph_scale_points_x = points_vs_top_left[:,0] * x_scale + x0
+            elif x_axis == "log":
+                graph_bottom_x = np.log10(graph_bottomright[0])
+                graph_top_x = np.log10(graph_topleft[0])
+                graph_delta_x = graph_top_x - graph_bottom_x
+                svg_relative_points_x = points_vs_top_left[:,0]/svg_x_diff
+                graph_relative_points_x = graph_top_x - svg_relative_points_x * graph_delta_x
+                graph_scale_points_x = 10**graph_relative_points_x
+            else:
+                graph_scale_points_x = None
+            if y_axis == "linear":
+                # scale point to graph coordinates
+                graph_scale_points_y = points_vs_top_left[:,1] * y_scale + y0
+            elif y_axis == "log":
+                graph_bottom_y = np.log10(graph_bottomright[1])
+                graph_top_y = np.log10(graph_topleft[1])
+                graph_delta_y = graph_top_y - graph_bottom_y
+                svg_relative_points_y = points_vs_top_left[:,1]/svg_y_diff
+                graph_relative_points_y = graph_top_y - svg_relative_points_y * graph_delta_y
+                graph_scale_points_y = 10**graph_relative_points_y
+            else:
+                graph_scale_points_y = None
+            graph_points = np.dstack((graph_scale_points_x,graph_scale_points_y))[0]
+            # transform point to graph coordinates
+            lines.append(graph_points)
+        except AttributeError:
+            print("No m origin found for " + path)
+    try:
+        max_line_len = max(map(len,lines))
+    except ValueError:
+        lines = []
+    if len(lines):
+        lines_dict = dict()
+        for i,l in enumerate(lines):
+            if len(l) < max_line_len:
+                l = np.append(l,[["",""]]*(max_line_len-len(l)),axis=0)
+            lines_dict["x%u" % i] = l[:,0]
+            lines_dict["y%u" % i] = l[:,1]
+        df = pd.DataFrame(lines_dict)
+        df.to_csv(out_file,index=False)
+    return len(lines),out_file
+
+class GUI(Tk):
+    def __init__(self):
+        super().__init__()
+        self.geometry("1000x500")
+        self.title("SVG Graph Data Extractor")
+        self.inputs_frame = Frame(self,bg="lightgrey",borderwidth=5)
+        self.inputs_frame.columnconfigure(0,weight=1)
+        self.inputs_frame.columnconfigure(0,weight=3)
+        self.inputs_frame.place(relheight=1,relwidth=0.3,relx=0.7,y=0)
+        self.l_fname = Label(self.inputs_frame,text="SVG Filepath:",font=("bold"))
+        self.fname = Entry(self.inputs_frame)
+        axis_options = ["linear","log"]
+        self.xaxis_selected = StringVar()
+        self.xaxis_selected.set(axis_options[0])
+        self.l_xaxis = Label(self.inputs_frame,text="X axis scale:")
+        self.xaxis_menu = OptionMenu(self.inputs_frame,self.xaxis_selected,*axis_options)
+
+        self.yaxis_selected = StringVar()
+        self.yaxis_selected.set(axis_options[0])
+        self.l_yaxis = Label(self.inputs_frame,text="Y axis scale:")
+        self.yaxis_menu = OptionMenu(self.inputs_frame,self.yaxis_selected,*axis_options)
+
+        dtype_options = ["point","line"]
+        self.dtype_selected = StringVar()
+        self.dtype_selected.set(dtype_options[0])
+        self.l_dtype = Label(self.inputs_frame,text="Data type:")
+        self.dtype_menu = OptionMenu(self.inputs_frame,self.dtype_selected,*dtype_options)
+
+        self.l_style = Label(self.inputs_frame,text="Unique Style Attribute:")
+        self.style_input = Entry(self.inputs_frame)
+
+        self.l_fout = Label(self.inputs_frame,text="Output CSV (optional):")
+        self.fout_input = Entry(self.inputs_frame)
+
+        self.btn_exec = Button(self.inputs_frame,text="Execute",width=10,height=2,command=self.execute)
+
+        input_widget_list = [self.l_fname,self.fname,
+                             self.l_xaxis,self.xaxis_menu,
+                             self.l_yaxis,self.yaxis_menu,
+                             self.l_dtype,self.dtype_menu,
+                             self.l_style,self.style_input,
+                             self.l_fout,self.fout_input,
+                             self.btn_exec
+                             ]
+        self.stack_widgets(input_widget_list)
+
+        self.outputs_frame = Frame(self,bg="lightblue",borderwidth=5)
+        self.outputs_frame.columnconfigure(0,weight=1)
+        self.outputs_frame.columnconfigure(0,weight=3)
+        self.outputs_frame.place(relheight=1,relwidth=0.7,relx=0,y=0)
+
+        self.update_idletasks()
+        w,h = self.outputs_frame.winfo_width(),self.outputs_frame.winfo_height()
+        self.text_width = 0.9*(0.9*w)
+
+        self.l_msg = Label(self.outputs_frame,text="Messages",bg="lightblue")
+        self.msg = Canvas(self.outputs_frame,width=0.9*w,height=0.9*h,bg="white")
+
+        output_widget_list = [self.l_msg,self.msg]
+        self.stack_widgets(output_widget_list)
+
+        self.update_idletasks()
+        wm,hm = self.msg.winfo_width(),self.msg.winfo_height()
+        self.text_placeholder = self.msg.create_text(wm/2,hm/2,anchor=CENTER)
+
+        self.protocol("WM_DELETE_WINDOW",self.destroy)
+        self.init_msg()
+        return
+    def init_msg(self):
+        self.update_msg("""Graph preprocessing - make sure these steps have been done:
+1) Convert the vector graph to Inkscape SVG format.
+2) Ungroup everything and make sure no transformations are present.
+3) Place two circles or ellipses (i.e. alignment points) that are centered about known coords, and should be relatively far away from each other.
+4) Using Inkscape's XML editor, add the attribute `coord` to each alignment point. Set the value of `coord` of each point to the known graph's xy coordinates in the format `<x>,<y>`.
+5) Ensure all items of interest are path objects (use the object to path function if necessary).
+6) Ensure all path(s)/point(s) of interest are paths with *no smooth nodes*. For circular points, this can be achieved by converting all smooth nodes to corner nodes in Inkscape.
+7) Ensure the path(s)/points(s) of interest have a uniquely identifying style attribute e.g. unique fill color.
+
+Only relative coordinates are supported at the moment (in Inkscape: Edit -> Preferences -> Input/Output -> SVG output -> Path data -> Path string format: Relative, then save the document, making sure it has updated the save (e.g. move an item, save, ctrl+z, save).""")
+        return
+    def execute(self):
+        fname = self.fname.get()
+        if fname and not os.path.exists(fname):
+            self.update_msg("File",fname,"does not exist")
+            return
+        xscale = self.xaxis_selected.get()
+        yscale = self.yaxis_selected.get()
+        dtype = self.dtype_selected.get()
+        style = self.style_input.get()
+        f_out = self.fout_input.get()
+        if f_out and not f_out.endswith(".csv"):
+            f_out += ".csv"
+        print(fname,xscale,yscale,dtype,style,f_out)
+        n,outfile = extract_coords(fname,style,xscale,yscale,True if dtype=="point" else False,f_out)
+        self.update_msg(" ".join([str(n),"Geometries with style specification containing",style,"found and extracted to",outfile]))
+        return
+    def stack_widgets(self,widget_list):
+        for i,w in enumerate(widget_list):
+            w.grid(column=0,row=0+i)
+        return
+    def update_msg(self,text):
+        self.msg.itemconfig(self.text_placeholder,text=text,width=self.text_width)
+
+
+if __name__=="__main__":
+    root = GUI()
+    root.mainloop()
