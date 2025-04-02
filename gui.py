@@ -61,12 +61,16 @@ def extract_path_coords(path):
     active_method = methods[raw_coords[0]]
     i = 0
     for item in raw_coords:
-        if item in methods:
-            active_method = methods[item]
+        if item.lower()=="z":
+            # Path closure to the first actual coordinate
+            svg_coords.append(svg_coords[1])
         else:
-            current_coords = np.array(item.split(",")).astype(float)
-            svg_coords.append(active_method(svg_coords[i],current_coords))
-            i += 1
+            if item in methods:
+                active_method = methods[item]
+            else:
+                current_coords = np.array(item.split(",")).astype(float)
+                svg_coords.append(active_method(svg_coords[i],current_coords))
+                i += 1
     return np.array(svg_coords[1:])
 
 def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_center=False,out_file=None):
