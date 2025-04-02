@@ -2,6 +2,10 @@ Extract coordinates from vector graphic plots after Inkscape preprocessing.
 
 The extracted coordinates are in graph coordinates.
 
+For the full set of preprocessing steps, run `gui.py`, which will bring up the list in the message box:
+
+![img](./GUI.png)
+
 
 # Example
 
