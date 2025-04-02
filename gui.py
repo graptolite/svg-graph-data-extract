@@ -102,7 +102,6 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
     graph_bottomright = p2[1,:]
     alignment_points = [svg_topleft,svg_bottomright,
                         graph_topleft,graph_bottomright]
-    print(alignment_points)
     for i,p in enumerate(alignment_points[2:]):
         if x_axis == "log":
             print("x")
