@@ -17,76 +17,6 @@
      id="defs3875">
     <clipPath
        clipPathUnits="userSpaceOnUse"
-       id="clipPath3901">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3899" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3913">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3911" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3925">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3923" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3937">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3935" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3949">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3947" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3961">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3959" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3973">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3971" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3985">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3983" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath3997">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path3995" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
-       id="clipPath4009">
-      <path
-         d="m -8,-8 h 16 v 16 h -16 z"
-         id="path4007" />
-    </clipPath>
-    <clipPath
-       clipPathUnits="userSpaceOnUse"
        id="clipPath4411">
       <g
          id="g4415">
@@ -433,8 +363,8 @@
      showgrid="false"
      showguides="true"
      inkscape:zoom="1.269048"
-     inkscape:cx="418.81788"
-     inkscape:cy="198.57405"
+     inkscape:cx="272.25133"
+     inkscape:cy="199.36204"
      inkscape:window-width="1920"
      inkscape:window-height="1007"
      inkscape:window-x="0"

@@ -25,6 +25,31 @@ import re
 import numpy as np
 import pandas as pd
 
+def extract_path_coords(path):
+    methods = {"m":lambda c0,c1: c0 + c1,
+               "v":lambda c0,c1: c0 + np.array([0,c1[0]]),
+               "h":lambda c0,c1: c0 + np.array([c1[0],0]),
+               "l":lambda c0,c1: c0 + c1,
+               "M":lambda c0,c1: c1,
+               "V":lambda c0,c1: np.array([c0[0],c1[0]]),
+               "H":lambda c0,c1: np.array([c1[0],c0[1]]),
+               "L":lambda c0,c1: c1,
+               }
+    raw_coords_m = re.search("d=\"(.+?)\"",path)
+    if raw_coords_m:
+        raw_coords = raw_coords_m.group(1).split(" ")
+    svg_coords = [np.array([0,0])]
+    active_method = methods[raw_coords[0]]
+    i = 0
+    for item in raw_coords:
+        if item in methods:
+            active_method = methods[item]
+        else:
+            current_coords = np.array(item.split(",")).astype(float)
+            svg_coords.append(active_method(svg_coords[i],current_coords))
+            i += 1
+    return np.array(svg_coords[1:])
+
 def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_center=False,out_file=None):
     if not out_file:
         out_file = svg_file+".csv"
@@ -69,25 +94,7 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
     lines = []
     for path in paths:
         try:
-            # find the m origin of these paths; may not be the exact center of the point but should be equally offset (systematic error) - which has no effect on changes in D95
-            raw_coords_m = re.search("d=\"m (.+)\"",path)
-            if raw_coords_m:
-                raw_coords = raw_coords_m.group(1)
-                processed_coords = re.sub("h (.*?) l",r"\g<1>,0",raw_coords)
-                relative_coords = True
-            else:
-                # TODO:
-                raise ValueError("Absolute coordinates not supported yet")
-            # Isolate just the coordinate items.
-            coords = [c for c in processed_coords.split(" ") if "," in c]
-            if relative_coords:
-                # convert m origin into a numpy array
-                origin = np.array(coords[0].split(",")).astype(float)
-                deltas = np.cumsum(np.array([np.array(c.split(",")).astype(float) for c in coords[1:]]),axis=0)
-                points = np.append(np.array([origin]),origin+deltas,axis=0)
-            else:
-                # TODO
-                points = [np.array(c.split(",")).astype(float) for c in coords]
+            points = extract_path_coords(path)
             # fix coordinate convention
             points[:,1] = -points[:,1]
             # center
@@ -123,7 +130,7 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
             # transform point to graph coordinates
             lines.append(graph_points)
         except AttributeError:
-            print("No m origin found for " + path)
+            print("No coords found for " + path)
     try:
         max_line_len = max(map(len,lines))
     except ValueError:
@@ -216,8 +223,7 @@ class GUI(Tk):
 5) Ensure all items of interest are path objects (use the object to path function if necessary).
 6) Ensure all path(s)/point(s) of interest are paths with *no smooth nodes*. For circular points, this can be achieved by converting all smooth nodes to corner nodes in Inkscape.
 7) Ensure the path(s)/points(s) of interest have a uniquely identifying style attribute e.g. unique fill color.
-
-Only relative coordinates are supported at the moment (in Inkscape: Edit -> Preferences -> Input/Output -> SVG output -> Path data -> Path string format: Relative, then save the document, making sure it has updated the save (e.g. move an item, save, ctrl+z, save).""")
+""")
         return
     def execute(self):
         fname = self.fname.get()
