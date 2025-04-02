@@ -25,6 +25,25 @@ import re
 import numpy as np
 import pandas as pd
 
+class LinTransform2D():
+    # Transform a coordinate space (a) into another (B) given two control points.
+    def __init__(self,a0,a1,B0,B1):
+        self.a0 = np.array(a0)
+        self.a1 = np.array(a1)
+        self.B0 = np.array(B0)
+        self.B1 = np.array(B1)
+        self.a_diff = self.a1 - self.a0
+        self.B_diff = self.B1 - self.B0
+        self.scale = self.B_diff/self.a_diff
+        self.delta = self.B0 - (self.scale * self.a0)
+        return
+    def transform_function(self):
+        f_transform = lambda a : a * self.scale + self.delta
+        return f_transform
+    def transform(self,a_xy):
+        f_transform = self.transform_function()
+        return f_transform(a_xy)
+
 def extract_path_coords(path):
     methods = {"m":lambda c0,c1: c0 + c1,
                "v":lambda c0,c1: c0 + np.array([0,c1[0]]),
@@ -56,6 +75,8 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
     with open(svg_file) as infile:
         svg = infile.read()
     alignment_points = [m for m in re.findall(r"<circle[\s\S]+?/>",svg) if "coords=" in m]
+    if len(alignment_points) == 0:
+        alignment_points = [m for m in re.findall(r"<ellipse[\s\S]+?/>",svg) if "coords=" in m]
     if len(alignment_points)!=2:
         raise ValueError("Exactly 2 alignment point are required but found %u alignment points" % len(alignment_points))
     align_centers = []
@@ -79,16 +100,19 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
     svg_bottomright[1] = -svg_bottomright[1]
     graph_topleft = p1[1,:]
     graph_bottomright = p2[1,:]
-    svg_diff = svg_bottomright - svg_topleft
-    graph_diff = graph_bottomright - graph_topleft
-    x0 = p1[1][0]
-    y0 = p1[1][1]
-    x_scale = graph_diff[0]/svg_diff[0]
-    y_scale = graph_diff[1]/svg_diff[1]
-    svg_x_diff = svg_diff[0]
-    svg_y_diff = svg_diff[1]
-    graph_x_diff = graph_diff[0]
-    graph_y_diff = graph_diff[1]
+    alignment_points = [svg_topleft,svg_bottomright,
+                        graph_topleft,graph_bottomright]
+    print(alignment_points)
+    for i,p in enumerate(alignment_points[2:]):
+        if x_axis == "log":
+            print("x")
+            p[0] = np.log10(p[0])
+        if y_axis == "log":
+            print("y")
+            p[1] = np.log10(p[1])
+        print(p)
+        alignment_points[i+2] = p
+    transformer = LinTransform2D(*alignment_points)
     # Search for path tags.
     paths = [m_str for m_str in re.findall(r"<path[\s\S]*?/>",svg) if point_style in m_str]
     lines = []
@@ -100,34 +124,22 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
             # center
             if get_center:
                 points = [points.mean(axis=0)]
-            # describe point relative to top left svg coordinate
-            points_vs_top_left = (points - p1[0,:])
+            graph_points = np.array([transformer.transform(p) for p in points])
             if x_axis == "linear":
                 # scale point to graph coordinates
-                graph_scale_points_x = points_vs_top_left[:,0] * x_scale + x0
+                graph_scale_points_x = graph_points[:,0]
             elif x_axis == "log":
-                graph_bottom_x = np.log10(graph_bottomright[0])
-                graph_top_x = np.log10(graph_topleft[0])
-                graph_delta_x = graph_top_x - graph_bottom_x
-                svg_relative_points_x = points_vs_top_left[:,0]/svg_x_diff
-                graph_relative_points_x = graph_top_x - svg_relative_points_x * graph_delta_x
-                graph_scale_points_x = 10**graph_relative_points_x
+                graph_scale_points_x = 10**graph_points[:,0]
             else:
                 graph_scale_points_x = None
             if y_axis == "linear":
                 # scale point to graph coordinates
-                graph_scale_points_y = points_vs_top_left[:,1] * y_scale + y0
+                graph_scale_points_y = graph_points[:,1]
             elif y_axis == "log":
-                graph_bottom_y = np.log10(graph_bottomright[1])
-                graph_top_y = np.log10(graph_topleft[1])
-                graph_delta_y = graph_top_y - graph_bottom_y
-                svg_relative_points_y = points_vs_top_left[:,1]/svg_y_diff
-                graph_relative_points_y = graph_top_y - svg_relative_points_y * graph_delta_y
-                graph_scale_points_y = 10**graph_relative_points_y
+                graph_scale_points_y = 10**graph_points[:,1]
             else:
                 graph_scale_points_y = None
             graph_points = np.dstack((graph_scale_points_x,graph_scale_points_y))[0]
-            # transform point to graph coordinates
             lines.append(graph_points)
         except AttributeError:
             print("No coords found for " + path)
@@ -144,7 +156,7 @@ def extract_coords(svg_file,point_style="",x_axis="linear",y_axis="linear",get_c
             lines_dict["y%u" % i] = l[:,1]
         df = pd.DataFrame(lines_dict)
         df.to_csv(out_file,index=False)
-    return len(lines),out_file
+    return len(lines),out_file,transformer
 
 class GUI(Tk):
     def __init__(self):
@@ -238,7 +250,7 @@ class GUI(Tk):
         if f_out and not f_out.endswith(".csv"):
             f_out += ".csv"
         print(fname,xscale,yscale,dtype,style,f_out)
-        n,outfile = extract_coords(fname,style,xscale,yscale,True if dtype=="point" else False,f_out)
+        n,outfile,_ = extract_coords(fname,style,xscale,yscale,True if dtype=="point" else False,f_out)
         self.update_msg(" ".join([str(n),"Geometries with style specification containing",style,"found and extracted to",outfile]))
         return
     def stack_widgets(self,widget_list):
@@ -252,3 +264,5 @@ class GUI(Tk):
 if __name__=="__main__":
     root = GUI()
     root.mainloop()
+
+#_,_,t = extract_coords("log_test.svg","#0000ff","log","log")
